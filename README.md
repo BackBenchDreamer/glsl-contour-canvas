@@ -1,6 +1,20 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Perlin Noise Contours - WebGL2
 
-## Getting Started
+This is a Next.js web application that renders a full-screen, interactive Perlin noise contour shader using raw WebGL2. 
+It features a minimal UI built with `leva` for tweaking shader parameters in real time without reloading the page.
+
+## Inspiration
+The original GLSL shader was created by [alx-m24](https://github.com/alx-m24/Perlin-Noise-Contours). The Shadertoy-style code was adapted to a WebGL2 pipeline and enhanced with a suite of interactive controls ("personal touches").
+
+## Features (Personal Touches)
+- **Palette Selector**: Choose between multiple color palettes ("Warm", "Ice", "Mono", "Neon").
+- **Seed Control**: An integer input that alters the perlin noise pattern deterministically.
+- **Speed Control**: A slider to adjust the flow of time.
+- **Contour Resolution Control**: A slider affecting the banding frequency.
+- **Lines Only Toggle**: Switch between filled contour bands or thin contour lines.
+- **Vignette & Grain Toggle**: Add a subtle film grain and vignette effect.
+
+## Local Development
 
 First, run the development server:
 
@@ -16,19 +30,8 @@ bun dev
 
 Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+## Deployment
 
-## Learn More
+This project is optimized to be easily deployed on [Vercel](https://vercel.com/new).
 
-To learn more about Next.js, take a look at the following resources:
-
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
-
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
-
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+[![Deploy with Vercel](https://vercel.com/button)](https://vercel.com/new/clone?repository-url=https%3A%2F%2Fgithub.com%2FBackBenchDreamer%2Fglsl-contour-canvas)
