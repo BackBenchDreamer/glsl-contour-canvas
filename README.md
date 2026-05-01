@@ -1,37 +1,49 @@
-# Perlin Noise Contours - WebGL2
+# Node-Based Field Processing Engine
 
-This is a Next.js web application that renders a full-screen, interactive Perlin noise contour shader using raw WebGL2. 
-It features a minimal UI built with `leva` for tweaking shader parameters in real time without reloading the page.
+This project is a high-performance **real-time field processing engine** with node-based composition for procedural and data-driven contour generation.
 
-## Inspiration
-The original GLSL shader was created by [alx-m24](https://github.com/alx-m24/Perlin-Noise-Contours). The Shadertoy-style code was adapted to a WebGL2 pipeline and enhanced with a suite of interactive controls ("personal touches").
+Unlike traditional fixed-pipeline or linear shaders disguised as a graph, this engine treats rendering as a strict **Directed Acyclic Graph (DAG)** of typed field transformations (`ScalarField`, `VectorField`), explicitly supporting non-linear topologies like branching, merging, blending, and masking.
 
-## Features (Personal Touches)
-- **Palette Selector**: Choose between multiple color palettes ("Warm", "Ice", "Mono", "Neon").
-- **Seed Control**: An integer input that alters the perlin noise pattern deterministically.
-- **Speed Control**: A slider to adjust the flow of time.
-- **Contour Resolution Control**: A slider affecting the banding frequency.
-- **Lines Only Toggle**: Switch between filled contour bands or thin contour lines.
-- **Vignette & Grain Toggle**: Add a subtle film grain and vignette effect.
+## Core Architecture
 
-## Local Development
+The system is separated into logical layers:
+- **/engine**: Handles graph topologies, strict FieldType validation, topological sorting, and **multi-pass** dynamic GLSL compilation. It deeply optimizes shaders by deduplicating GLSL dependencies, tracking field types, and intelligently inlining trivial math operations. When passing field data across frames or stages, it partitions the graph and compiles multiple independent shader programs.
+- **/nodes**: Defines the domain-specific operations:
+  - **Temporal**: `feedback`, `decay`, `accumulation`, `diffusion`
+  - **Spatial**: Simplex/FBM Noise, Domain Warping, Transforms
+  - **Compositing**: Multi-Input Blends, Mixers, Contour Extraction, Color Mapping
+- **/renderer**: A high-performance WebGL2 wrapper equipped with **Ping-Pong Framebuffers**. It seamlessly handles multi-pass execution, injecting previous-frame states to simulate evolving dynamical systems (like Reaction-Diffusion) across frames.
+- **/ui**: The host environment showcasing live node topology and property controls.
 
-First, run the development server:
+## Features
 
-```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+- **Procedural Art Generation**: Construct intricate patterns using multi-layer noise and domain warping.
+- **Node-Based Pipeline**: Swap out algorithms or add new math nodes without rewriting monolithic shaders.
+- **Real-Time Playground**: Interactive controls (via Leva) allow you to tweak node properties instantly without recompiling the shader, running at a fluid 60 FPS.
+- **Dynamic GLSL Compilation**: The engine only includes the dependencies and nodes actually used in your graph.
+
+## Extending the Engine
+
+### Data-Driven Contours (External Scalar Fields)
+The node graph can easily be extended to support data-driven visualizations. By registering a `data_field` node, you can feed an external texture or buffer (e.g., parsed from a CSV file) directly into the node pipeline:
+
+```ts
+registry.register('data_field', {
+  name: 'Data Field (CSV/Grid)',
+  generateCode: (node, getInput) => {
+    const uv = getInput('uv');
+    return `float out_${node.id} = texture(u_${node.id}_dataTex, ${uv}).r;`;
+  }
+});
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+You can then pipe the `out` of this data node into the `ContourNode` to generate topographic maps of real datasets.
 
-## Deployment
+## Development
 
-This project is optimized to be easily deployed on [Vercel](https://vercel.com/new).
+```bash
+npm install
+npm run dev
+```
 
-[![Deploy with Vercel](https://vercel.com/button)](https://vercel.com/new/clone?repository-url=https%3A%2F%2Fgithub.com%2FBackBenchDreamer%2Fglsl-contour-canvas)
+Open [http://localhost:3000](http://localhost:3000) to access the interactive Node Playground.
