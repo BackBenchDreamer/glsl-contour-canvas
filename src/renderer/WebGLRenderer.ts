@@ -4,10 +4,12 @@ export interface PassState {
   shader: CompiledShader;
   program: WebGLProgram;
   uniformLocations: Map<string, WebGLUniformLocation>;
-  fboRead: WebGLFramebuffer | null;
-  fboWrite: WebGLFramebuffer | null;
-  texRead: WebGLTexture | null;
-  texWrite: WebGLTexture | null;
+  fboA: WebGLFramebuffer | null;
+  fboB: WebGLFramebuffer | null;
+  texA: WebGLTexture | null;
+  texB: WebGLTexture | null;
+  /** true = next write goes to fboB, read from texA */
+  pingPong: boolean;
 }
 
 export class WebGLRenderer {
@@ -16,56 +18,60 @@ export class WebGLRenderer {
   private vao: WebGLVertexArrayObject | null = null;
   private animationFrameId: number = 0;
   private uniformsData: Record<string, { type: string; value: any }> = {};
+  private useFloatFBO = true;
 
   constructor(canvas: HTMLCanvasElement) {
     const gl = canvas.getContext('webgl2', { antialias: false });
-    if (!gl) {
-      throw new Error('WebGL2 not supported');
-    }
+    if (!gl) throw new Error('WebGL2 not supported');
     this.gl = gl;
-    
-    // Extensions for floating point textures if needed
-    gl.getExtension('EXT_color_buffer_float');
+
+    // Attempt to enable float FBOs; fall back to RGBA8 if unsupported.
+    const extCBF = gl.getExtension('EXT_color_buffer_float');
     gl.getExtension('OES_texture_float_linear');
-    
+    if (!extCBF) {
+      console.warn('EXT_color_buffer_float not available — falling back to RGBA8 FBOs');
+      this.useFloatFBO = false;
+    }
+
     this.setupGeometry();
   }
 
+  /* ---- geometry (fullscreen quad) ---- */
   private setupGeometry() {
     const gl = this.gl;
-    const positions = new Float32Array([
-      -1, -1,  1, -1, -1,  1,
-       1, -1,  1,  1, -1,  1,
-    ]);
-
-    const uvs = new Float32Array([
-      0, 0,  1, 0,  0, 1,
-      1, 0,  1, 1,  0, 1,
-    ]);
-
     this.vao = gl.createVertexArray();
     gl.bindVertexArray(this.vao);
 
-    const positionBuffer = gl.createBuffer();
-    gl.bindBuffer(gl.ARRAY_BUFFER, positionBuffer);
-    gl.bufferData(gl.ARRAY_BUFFER, positions, gl.STATIC_DRAW);
+    const buf = gl.createBuffer();
+    // interleaved: pos.xy, uv.xy
+    const data = new Float32Array([
+      -1, -1, 0, 0,
+       1, -1, 1, 0,
+      -1,  1, 0, 1,
+       1, -1, 1, 0,
+       1,  1, 1, 1,
+      -1,  1, 0, 1,
+    ]);
+    gl.bindBuffer(gl.ARRAY_BUFFER, buf);
+    gl.bufferData(gl.ARRAY_BUFFER, data, gl.STATIC_DRAW);
     gl.enableVertexAttribArray(0);
-    gl.vertexAttribPointer(0, 2, gl.FLOAT, false, 0, 0);
-
-    const uvBuffer = gl.createBuffer();
-    gl.bindBuffer(gl.ARRAY_BUFFER, uvBuffer);
-    gl.bufferData(gl.ARRAY_BUFFER, uvs, gl.STATIC_DRAW);
+    gl.vertexAttribPointer(0, 2, gl.FLOAT, false, 16, 0);
     gl.enableVertexAttribArray(1);
-    gl.vertexAttribPointer(1, 2, gl.FLOAT, false, 0, 0);
+    gl.vertexAttribPointer(1, 2, gl.FLOAT, false, 16, 8);
 
     gl.bindVertexArray(null);
   }
 
-  private createFBO(width: number, height: number): { fbo: WebGLFramebuffer, tex: WebGLTexture } {
+  /* ---- FBO helpers ---- */
+  private createFBO(w: number, h: number): { fbo: WebGLFramebuffer; tex: WebGLTexture } {
     const gl = this.gl;
     const tex = gl.createTexture()!;
     gl.bindTexture(gl.TEXTURE_2D, tex);
-    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA32F, width, height, 0, gl.RGBA, gl.FLOAT, null);
+    if (this.useFloatFBO) {
+      gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA32F, w, h, 0, gl.RGBA, gl.FLOAT, null);
+    } else {
+      gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA8, w, h, 0, gl.RGBA, gl.UNSIGNED_BYTE, null);
+    }
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
@@ -74,44 +80,56 @@ export class WebGLRenderer {
     const fbo = gl.createFramebuffer()!;
     gl.bindFramebuffer(gl.FRAMEBUFFER, fbo);
     gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, tex, 0);
-    gl.bindFramebuffer(gl.FRAMEBUFFER, null);
 
+    const status = gl.checkFramebufferStatus(gl.FRAMEBUFFER);
+    if (status !== gl.FRAMEBUFFER_COMPLETE) {
+      console.error('Framebuffer incomplete:', status);
+      // try RGBA8 fallback
+      if (this.useFloatFBO) {
+        this.useFloatFBO = false;
+        gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+        gl.deleteTexture(tex);
+        gl.deleteFramebuffer(fbo);
+        return this.createFBO(w, h);
+      }
+    }
+    gl.bindFramebuffer(gl.FRAMEBUFFER, null);
     return { fbo, tex };
   }
 
+  /* ---- shader compile ---- */
   private compileShader(type: number, source: string): WebGLShader {
     const gl = this.gl;
-    const shader = gl.createShader(type);
-    if (!shader) throw new Error('Cannot create shader');
+    const shader = gl.createShader(type)!;
     gl.shaderSource(shader, source);
     gl.compileShader(shader);
     if (!gl.getShaderParameter(shader, gl.COMPILE_STATUS)) {
-      console.error(gl.getShaderInfoLog(shader));
-      console.log(source);
+      const log = gl.getShaderInfoLog(shader);
+      console.error('Shader compile error:\n', log, '\n--- source ---\n', source);
       gl.deleteShader(shader);
       throw new Error('Shader compilation failed');
     }
     return shader;
   }
 
+  /* ---- public API ---- */
   public setShaders(compiledPasses: CompiledShader[]) {
     const gl = this.gl;
-    
-    // Clean up old passes
+    // Clean up
     this.passes.forEach(p => {
       gl.deleteProgram(p.program);
-      if (p.fboRead) gl.deleteFramebuffer(p.fboRead);
-      if (p.fboWrite) gl.deleteFramebuffer(p.fboWrite);
-      if (p.texRead) gl.deleteTexture(p.texRead);
-      if (p.texWrite) gl.deleteTexture(p.texWrite);
+      if (p.fboA) gl.deleteFramebuffer(p.fboA);
+      if (p.fboB) gl.deleteFramebuffer(p.fboB);
+      if (p.texA) gl.deleteTexture(p.texA);
+      if (p.texB) gl.deleteTexture(p.texB);
     });
     this.passes = [];
     this.uniformsData = {};
 
-    const width = gl.canvas.width;
-    const height = gl.canvas.height;
+    const w = gl.canvas.width || 1;
+    const h = gl.canvas.height || 1;
 
-    compiledPasses.forEach((compiled, index) => {
+    for (const compiled of compiledPasses) {
       const vs = this.compileShader(gl.VERTEX_SHADER, compiled.vertexShader);
       const fs = this.compileShader(gl.FRAGMENT_SHADER, compiled.fragmentShader);
 
@@ -126,161 +144,161 @@ export class WebGLRenderer {
         console.error(gl.getProgramInfoLog(program));
         throw new Error('Program linking failed');
       }
-
       gl.deleteShader(vs);
       gl.deleteShader(fs);
 
       const uniformLocations = new Map<string, WebGLUniformLocation>();
       gl.useProgram(program);
-      Object.entries(compiled.uniforms).forEach(([name, data]) => {
+      for (const [name, data] of Object.entries(compiled.uniforms)) {
         const loc = gl.getUniformLocation(program, name);
         if (loc) uniformLocations.set(name, loc);
-        this.uniformsData[name] = data; // Merge all uniforms
-      });
+        this.uniformsData[name] = { ...data };
+      }
 
-      let fboRead = null, fboWrite = null, texRead = null, texWrite = null;
+      let fboA: WebGLFramebuffer | null = null;
+      let fboB: WebGLFramebuffer | null = null;
+      let texA: WebGLTexture | null = null;
+      let texB: WebGLTexture | null = null;
+
       if (!compiled.isFinal) {
-         // Create Ping-Pong FBOs for intermediate passes
-         const fbo1 = this.createFBO(width, height);
-         const fbo2 = this.createFBO(width, height);
-         fboRead = fbo1.fbo; texRead = fbo1.tex;
-         fboWrite = fbo2.fbo; texWrite = fbo2.tex;
+        const a = this.createFBO(w, h);
+        const b = this.createFBO(w, h);
+        fboA = a.fbo; texA = a.tex;
+        fboB = b.fbo; texB = b.tex;
       }
 
       this.passes.push({
         shader: compiled,
         program,
         uniformLocations,
-        fboRead,
-        fboWrite,
-        texRead,
-        texWrite
+        fboA, fboB, texA, texB,
+        pingPong: false
       });
-    });
+    }
   }
 
   public updateUniforms(newValues: Record<string, any>) {
-    Object.entries(newValues).forEach(([name, value]) => {
+    for (const [name, value] of Object.entries(newValues)) {
       if (this.uniformsData[name]) {
         this.uniformsData[name].value = value;
       }
-    });
+    }
   }
 
   public render() {
     if (this.passes.length === 0 || !this.vao) return;
     const gl = this.gl;
-    
     gl.viewport(0, 0, gl.canvas.width, gl.canvas.height);
 
-    this.passes.forEach((pass, index) => {
-      if (pass.shader.isFinal) {
-        gl.bindFramebuffer(gl.FRAMEBUFFER, null);
-      } else {
-        gl.bindFramebuffer(gl.FRAMEBUFFER, pass.fboWrite);
-      }
+    for (const pass of this.passes) {
+      // Determine write / read targets
+      const writeFbo = pass.shader.isFinal
+        ? null
+        : (pass.pingPong ? pass.fboB : pass.fboA);
+      const readTex = pass.pingPong ? pass.texA : pass.texB;
+      // (read = opposite of write for ping-pong; on first frame texB is blank which is fine)
 
-      gl.clearColor(0, 0, 0, 1);
+      gl.bindFramebuffer(gl.FRAMEBUFFER, writeFbo);
+      gl.clearColor(0, 0, 0, 0);
       gl.clear(gl.COLOR_BUFFER_BIT);
-
       gl.useProgram(pass.program);
 
-      // Apply uniforms
       let textureUnit = 0;
-      Object.entries(pass.shader.uniforms).forEach(([name, data]) => {
+      for (const [name] of Object.entries(pass.shader.uniforms)) {
         const loc = pass.uniformLocations.get(name);
-        if (!loc) return;
-        const currentData = this.uniformsData[name] || data;
+        if (!loc) continue;
+        const data = this.uniformsData[name] || pass.shader.uniforms[name];
 
         if (name.endsWith('_previousFrameTex')) {
-           gl.activeTexture(gl.TEXTURE0 + textureUnit);
-           gl.bindTexture(gl.TEXTURE_2D, pass.texRead);
-           gl.uniform1i(loc, textureUnit);
-           textureUnit++;
+          gl.activeTexture(gl.TEXTURE0 + textureUnit);
+          gl.bindTexture(gl.TEXTURE_2D, readTex);
+          gl.uniform1i(loc, textureUnit);
+          textureUnit++;
         } else if (name.endsWith('_passTex')) {
-           // Find the pass that generated this texture
-           const srcPassId = name.match(/u_(.*)_passTex/)?.[1];
-           const srcPass = this.passes.find(p => p.shader.passId === srcPassId);
-           if (srcPass) {
-             gl.activeTexture(gl.TEXTURE0 + textureUnit);
-             gl.bindTexture(gl.TEXTURE_2D, srcPass.texRead); // Read from what was written last frame or earlier this frame
-             gl.uniform1i(loc, textureUnit);
-             textureUnit++;
-           }
-        } else {
-          switch (currentData.type) {
-            case 'float': gl.uniform1f(loc, currentData.value); break;
-            case 'int': gl.uniform1i(loc, currentData.value); break;
-            case 'vec2': gl.uniform2fv(loc, currentData.value); break;
-            case 'vec3':
-              if (typeof currentData.value === 'string') gl.uniform3fv(loc, hexToRgb(currentData.value));
-              else gl.uniform3fv(loc, currentData.value);
-              break;
+          const srcPassId = name.match(/u_(.+)_passTex/)?.[1];
+          const srcPass = this.passes.find(p => p.shader.passId === srcPassId);
+          if (srcPass) {
+            // After the source pass has been rendered this frame, its latest output
+            // is in the write target (which just got swapped to read side).
+            const srcTex = srcPass.pingPong ? srcPass.texB : srcPass.texA;
+            gl.activeTexture(gl.TEXTURE0 + textureUnit);
+            gl.bindTexture(gl.TEXTURE_2D, srcTex);
+            gl.uniform1i(loc, textureUnit);
+            textureUnit++;
           }
+        } else {
+          this.applyUniformValue(gl, loc, data);
         }
-      });
+      }
 
       gl.bindVertexArray(this.vao);
       gl.drawArrays(gl.TRIANGLES, 0, 6);
-    });
 
-    // Swap FBOs for ping-ponging
-    this.passes.forEach(pass => {
+      // Flip ping-pong for this pass
       if (!pass.shader.isFinal) {
-        const tempFbo = pass.fboRead;
-        const tempTex = pass.texRead;
-        pass.fboRead = pass.fboWrite;
-        pass.texRead = pass.texWrite;
-        pass.fboWrite = tempFbo;
-        pass.texWrite = tempTex;
+        pass.pingPong = !pass.pingPong;
       }
-    });
+    }
+  }
+
+  private applyUniformValue(
+    gl: WebGL2RenderingContext,
+    loc: WebGLUniformLocation,
+    data: { type: string; value: any }
+  ) {
+    switch (data.type) {
+      case 'float': gl.uniform1f(loc, data.value); break;
+      case 'int':   gl.uniform1i(loc, data.value); break;
+      case 'vec2':  gl.uniform2fv(loc, data.value); break;
+      case 'vec3':
+        if (typeof data.value === 'string') gl.uniform3fv(loc, hexToRgb(data.value));
+        else gl.uniform3fv(loc, data.value);
+        break;
+    }
   }
 
   public startLoop(onFrame?: (renderer: WebGLRenderer) => void) {
+    this.stopLoop();
     const loop = () => {
       if (onFrame) onFrame(this);
       this.render();
       this.animationFrameId = requestAnimationFrame(loop);
     };
-    this.stopLoop();
     loop();
   }
 
   public stopLoop() {
     if (this.animationFrameId) {
       cancelAnimationFrame(this.animationFrameId);
+      this.animationFrameId = 0;
     }
   }
 
   public resize(width: number, height: number) {
-    this.gl.canvas.width = width;
-    this.gl.canvas.height = height;
-    
-    // Recreate FBOs for new size
-    this.passes.forEach(p => {
-       if (!p.shader.isFinal) {
-          if (p.fboRead) this.gl.deleteFramebuffer(p.fboRead);
-          if (p.fboWrite) this.gl.deleteFramebuffer(p.fboWrite);
-          if (p.texRead) this.gl.deleteTexture(p.texRead);
-          if (p.texWrite) this.gl.deleteTexture(p.texWrite);
-          
-          const fbo1 = this.createFBO(width, height);
-          const fbo2 = this.createFBO(width, height);
-          p.fboRead = fbo1.fbo; p.texRead = fbo1.tex;
-          p.fboWrite = fbo2.fbo; p.texWrite = fbo2.tex;
-       }
-    });
-    
-    this.render();
+    if (width < 1 || height < 1) return;
+    const gl = this.gl;
+    (gl.canvas as HTMLCanvasElement).width = width;
+    (gl.canvas as HTMLCanvasElement).height = height;
+
+    // Recreate FBOs
+    for (const p of this.passes) {
+      if (p.shader.isFinal) continue;
+      if (p.fboA) gl.deleteFramebuffer(p.fboA);
+      if (p.fboB) gl.deleteFramebuffer(p.fboB);
+      if (p.texA) gl.deleteTexture(p.texA);
+      if (p.texB) gl.deleteTexture(p.texB);
+      const a = this.createFBO(width, height);
+      const b = this.createFBO(width, height);
+      p.fboA = a.fbo; p.texA = a.tex;
+      p.fboB = b.fbo; p.texB = b.tex;
+      p.pingPong = false;
+    }
   }
 }
 
 function hexToRgb(hex: string): [number, number, number] {
-  const result = /^#?([a-f\\d]{2})([a-f\\d]{2})([a-f\\d]{2})$/i.exec(hex);
-  return result ? [
-    parseInt(result[1], 16) / 255,
-    parseInt(result[2], 16) / 255,
-    parseInt(result[3], 16) / 255
-  ] : [0, 0, 0];
+  const result = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
+  return result
+    ? [parseInt(result[1], 16) / 255, parseInt(result[2], 16) / 255, parseInt(result[3], 16) / 255]
+    : [0, 0, 0];
 }

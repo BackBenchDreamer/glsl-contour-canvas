@@ -1,94 +1,86 @@
 "use client";
 
 import React, { useState, useEffect, useMemo, useRef } from 'react';
-import { Leva, useControls, button } from 'leva';
+import { Leva, useControls } from 'leva';
 import { EngineCanvas } from '../renderer/EngineCanvas';
 import { GraphDef } from '../engine/Graph';
 import { compileGraph, CompiledShader } from '../engine/Compiler';
 import '../nodes';
 
 export default function Playground() {
-  const [graph, setGraph] = useState<GraphDef | null>(null);
   const [compiled, setCompiled] = useState<CompiledShader[] | null>(null);
   const timeRef = useRef(0);
 
+  const noiseControls = useControls('Noise', {
+    scale: { value: 4.0, min: 0.5, max: 20.0, step: 0.5 },
+    fbmOctaves: { value: 4, min: 1, max: 8, step: 1 },
+  });
+
+  const warpControls = useControls('Domain Warp', {
+    intensity: { value: 0.4, min: 0.0, max: 2.0, step: 0.01 },
+    warpScale: { value: 2.0, min: 0.5, max: 10.0, step: 0.5 },
+  });
+
+  const contourControls = useControls('Contour', {
+    frequency: { value: 8.0, min: 1.0, max: 40.0, step: 0.5 },
+    thickness: { value: 0.08, min: 0.01, max: 0.5, step: 0.01 },
+    smoothing: { value: 0.04, min: 0.0, max: 0.2, step: 0.005 },
+  });
+
+  const colorControls = useControls('Colors', {
+    background: '#050510',
+    contour_color: '#00ffcc',
+  });
+
+  // Rebuild graph whenever controls change — this re-compiles the shader
   useEffect(() => {
-    const initialGraph: GraphDef = {
+    const graph: GraphDef = {
       outputNodeId: 'out',
       nodes: [
         { id: 'uv', type: 'uv', params: {}, inputs: {} },
         { id: 'time', type: 'time', params: { value: 0.0 }, inputs: {} },
-        
-        // Pass 1: Reaction-Diffusion Field
-        { id: 'noise', type: 'noise_simplex', params: { scale: 10.0, offset: [0,0] }, inputs: { uv: { nodeId: 'uv' } } },
-        { id: 'anim_noise', type: 'math_add', params: {}, inputs: { a: { nodeId: 'noise' }, b: { nodeId: 'time' } } },
-        // A little trick to make noise appear only occasionally or sparsely
-        { id: 'sparse_noise', type: 'blend', params: { op: 'max' }, inputs: { a: { nodeId: 'anim_noise' }, b: { value: '-0.8' } } },
-        
-        // Diffuse the previous frame
-        { id: 'diffuse', type: 'diffusion', params: { rate: 1.0 }, inputs: { uv: { nodeId: 'uv' } } },
-        
-        // Accumulate and Decay
-        { id: 'add_new', type: 'math_add', params: {}, inputs: { a: { nodeId: 'diffuse' }, b: { nodeId: 'sparse_noise' } } },
-        { id: 'decay_field', type: 'decay', params: { rate: 0.98 }, inputs: { uv: { nodeId: 'uv' }, current: { nodeId: 'add_new' } } },
-        
-        // Output of Pass 1 (Written to FBO)
-        { id: 'pass1_out', type: 'pass_boundary', params: {}, inputs: { in: { nodeId: 'decay_field' } } },
 
-        // Pass 2: Contour & Color
-        { id: 'contour', type: 'contour', params: { frequency: 5.0, thickness: 0.05, smoothing: 0.02 }, inputs: { scalar: { nodeId: 'pass1_out' } } },
-        { id: 'color', type: 'color_map', params: { color1: '#000000', color2: '#ff0055' }, inputs: { mask: { nodeId: 'contour' } } },
-        { id: 'out', type: 'output', params: {}, inputs: { color: { nodeId: 'color' } } }
-      ]
+        // FBM noise for warping
+        { id: 'warp_fbm', type: 'noise_fbm', params: { octaves: noiseControls.fbmOctaves, scale: warpControls.warpScale, offset: [0, 0] }, inputs: { uv: { nodeId: 'uv' } } },
+
+        // Domain warp
+        { id: 'warp', type: 'warp', params: { intensity: warpControls.intensity }, inputs: { uv: { nodeId: 'uv' }, warpField: { nodeId: 'warp_fbm' } } },
+
+        // Main noise through warped UV
+        { id: 'main_noise', type: 'noise_simplex', params: { scale: noiseControls.scale, offset: [0, 0] }, inputs: { uv: { nodeId: 'warp' } } },
+
+        // Animate by adding time
+        { id: 'animated', type: 'math_add', params: {}, inputs: { a: { nodeId: 'main_noise' }, b: { nodeId: 'time' } } },
+
+        // Contour
+        { id: 'contour', type: 'contour', params: { frequency: contourControls.frequency, thickness: contourControls.thickness, smoothing: contourControls.smoothing }, inputs: { scalar: { nodeId: 'animated' } } },
+
+        // Color
+        { id: 'color', type: 'color_map', params: { color1: colorControls.background, color2: colorControls.contour_color }, inputs: { mask: { nodeId: 'contour' } } },
+
+        { id: 'out', type: 'output', params: {}, inputs: { color: { nodeId: 'color' } } },
+      ],
     };
-    setGraph(initialGraph);
-  }, []);
 
-  useEffect(() => {
-    if (graph) {
-      setCompiled(compileGraph(graph));
+    try {
+      const passes = compileGraph(graph);
+      setCompiled(passes);
+    } catch (e) {
+      console.error('Graph compilation error:', e);
     }
-  }, [graph]);
-
-  const warpControls = useControls('Warp Node', {
-    intensity: { value: 0.5, min: 0.0, max: 2.0, step: 0.01 },
-    noiseScale: { value: 2.0, min: 0.1, max: 10.0, step: 0.1 }
-  });
-
-  const noiseControls = useControls('Main Noise Node', {
-    scale: { value: 3.0, min: 0.1, max: 20.0, step: 0.1 }
-  });
-
-  const contourControls = useControls('Contour Node', {
-    frequency: { value: 10.0, min: 1.0, max: 50.0, step: 0.1 },
-    thickness: { value: 0.1, min: 0.01, max: 1.0, step: 0.01 },
-    smoothing: { value: 0.05, min: 0.0, max: 0.5, step: 0.01 }
-  });
-
-  const colorControls = useControls('Color Map', {
-    bg_color: '#0a0a0a',
-    line_color: '#00ffcc'
-  });
-
-  const uniforms = useMemo(() => {
-    return {
-      'u_warp_intensity': warpControls.intensity,
-      'u_warp_noise_scale': warpControls.noiseScale,
-      'u_main_noise_scale': noiseControls.scale,
-      'u_contour_frequency': contourControls.frequency,
-      'u_contour_thickness': contourControls.thickness,
-      'u_contour_smoothing': contourControls.smoothing,
-      'u_color_color1': colorControls.bg_color,
-      'u_color_color2': colorControls.line_color
-    };
-  }, [warpControls, noiseControls, contourControls, colorControls]);
+  }, [
+    noiseControls.scale, noiseControls.fbmOctaves,
+    warpControls.intensity, warpControls.warpScale,
+    contourControls.frequency, contourControls.thickness, contourControls.smoothing,
+    colorControls.background, colorControls.contour_color,
+  ]);
 
   const onFrame = (renderer: any) => {
-    timeRef.current += 0.005;
-    renderer.updateUniforms({
-      'u_time_value': timeRef.current
-    });
+    timeRef.current += 0.004;
+    renderer.updateUniforms({ 'u_time_value': timeRef.current });
   };
+
+  const uniforms = useMemo(() => ({}), []);
 
   return (
     <div className="w-full h-screen bg-black overflow-hidden relative font-sans text-white">
@@ -103,7 +95,12 @@ export default function Playground() {
           Procedural GLSL Graph Compiler
         </p>
       </div>
-      <Leva theme={{ colors: { elevation1: 'rgba(0,0,0,0.8)', elevation2: 'rgba(0,0,0,0.9)' } }} />
+      <Leva
+        collapsed={false}
+        theme={{
+          colors: { elevation1: 'rgba(0,0,0,0.85)', elevation2: 'rgba(0,0,0,0.92)' },
+        }}
+      />
     </div>
   );
 }
