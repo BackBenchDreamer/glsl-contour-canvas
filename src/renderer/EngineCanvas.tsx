@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useRef } from 'react';
 import { WebGLRenderer } from './WebGLRenderer';
 import { CompiledShader } from '../engine/Compiler';
 
@@ -9,10 +9,22 @@ interface EngineCanvasProps {
   uniforms: Record<string, any>;
   className?: string;
   onFrame?: (renderer: WebGLRenderer) => void;
+  /** Callback when a shader compilation/link error occurs */
+  onShaderError?: (error: string) => void;
+  /** Ref to the underlying <canvas> for export */
+  canvasRef?: React.RefObject<HTMLCanvasElement | null>;
 }
 
-export const EngineCanvas: React.FC<EngineCanvasProps> = ({ compiledShader, uniforms, className, onFrame }) => {
-  const canvasRef = useRef<HTMLCanvasElement>(null);
+export const EngineCanvas: React.FC<EngineCanvasProps> = ({
+  compiledShader,
+  uniforms,
+  className,
+  onFrame,
+  onShaderError,
+  canvasRef: externalCanvasRef,
+}) => {
+  const internalCanvasRef = useRef<HTMLCanvasElement>(null);
+  const canvasRef = externalCanvasRef || internalCanvasRef;
   const rendererRef = useRef<WebGLRenderer | null>(null);
 
   useEffect(() => {
@@ -49,11 +61,15 @@ export const EngineCanvas: React.FC<EngineCanvasProps> = ({ compiledShader, unif
         rendererRef.current.startLoop((r) => {
           if (onFrameRef.current) onFrameRef.current(r);
         });
+        // Clear any previous error on successful compile
+        if (onShaderError) onShaderError('');
       } catch (e) {
-        console.error("Failed to compile shader:", e);
+        const msg = e instanceof Error ? e.message : String(e);
+        console.error("Failed to compile shader:", msg);
+        if (onShaderError) onShaderError(msg);
       }
     }
-  }, [compiledShader]);
+  }, [compiledShader, onShaderError]);
 
   useEffect(() => {
     if (rendererRef.current) {
