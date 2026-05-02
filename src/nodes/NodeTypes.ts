@@ -120,7 +120,7 @@ registry.register('blend', {
   outputType: FieldType.DynamicScalar,
   inline: true,
   generateCode: (node, getInput) => {
-    const op = node.params.op ?? 'add'; 
+    const op = node.params.op ?? 'add';
     const a = getInput('a');
     const b = getInput('b');
     if (op === 'add') return `(${a} + ${b})`;
@@ -221,7 +221,7 @@ registry.register('diffusion', {
   inputs: { uv: FieldType.Vector2 },
   outputType: FieldType.DynamicScalar,
   uniformTypes: { previousFrameTex: 'sampler2D', texelSize: 'vec2', rate: 'float' },
-  getUniforms: (node) => ({ texelSize: [1/1024, 1/1024], rate: node.params.rate ?? 1.0 }),
+  getUniforms: (node) => ({ texelSize: [1 / 1024, 1 / 1024], rate: node.params.rate ?? 1.0 }),
   generateCode: (node, getInput) => {
     return `
     vec2 uv_${node.id} = ${getInput('uv')};

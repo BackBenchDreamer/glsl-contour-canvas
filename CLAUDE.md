@@ -4,6 +4,14 @@
 
 > A browser-native GLSL compiler that takes a typed node graph as input and emits optimized WebGL2 shader programs in real time — with ping-pong framebuffers for temporal effects and strict DAG validation to prevent invalid field compositions.
 
+## Agent Behavior Rules
+
+- DO NOT use browser automation tools (no Puppeteer, no screenshot loops).
+- DO NOT start a dev server to verify visual output.
+- Verify all changes by reading source code only.
+- If unsure whether a change is correct, output a question — do not loop.
+- Maximum 3 tool calls before pausing to summarize progress.
+
 ## Compilation Pipeline
 
 ```
