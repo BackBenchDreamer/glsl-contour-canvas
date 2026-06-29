@@ -32,6 +32,7 @@ export const PresetSwitcher: React.FC<PresetSwitcherProps> = ({ activePresetId, 
       className={`preset-bar glass-panel ${collapsed ? 'collapsed' : ''}`}
       data-overlay
       id="preset-switcher"
+      suppressHydrationWarning
     >
       <button
         className="preset-bar-toggle"

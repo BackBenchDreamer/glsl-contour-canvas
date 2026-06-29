@@ -42,25 +42,41 @@ export const RightSidebar: React.FC<RightSidebarProps> = ({ children }) => {
   }, []);
 
   return (
-    <div
-      className={`right-sidebar ${isOpen ? 'open' : ''}`}
-      id="right-sidebar"
-    >
-      {/* Toggle button — left edge, vertically centered */}
+    <>
+      <div
+        className={`right-sidebar ${isOpen ? 'open' : ''}`}
+        id="right-sidebar"
+        suppressHydrationWarning
+      >
+        {/* Desktop tab — left edge, vertically centered (hidden on mobile via CSS) */}
+        <button
+          className="sidebar-toggle"
+          onClick={toggle}
+          title={isOpen ? 'Close sidebar' : 'Open sidebar'}
+          id="sidebar-toggle-btn"
+          aria-label={isOpen ? 'Close sidebar' : 'Open sidebar'}
+          suppressHydrationWarning
+        >
+          {isOpen ? '›' : '‹'}
+        </button>
+
+        {/* Sidebar content */}
+        <div className="sidebar-content">
+          {children}
+        </div>
+      </div>
+
+      {/* Mobile FAB — floats bottom-right, visible only on ≤599px via CSS */}
       <button
-        className="sidebar-toggle"
+        className={`sidebar-fab ${isOpen ? 'open' : ''}`}
         onClick={toggle}
-        title={isOpen ? 'Close sidebar' : 'Open sidebar'}
-        id="sidebar-toggle-btn"
-        aria-label={isOpen ? 'Close sidebar' : 'Open sidebar'}
+        suppressHydrationWarning
+        title={isOpen ? 'Close panel' : 'Open panel'}
+        id="sidebar-fab-btn"
+        aria-label={isOpen ? 'Close panel' : 'Open panel'}
       >
         {isOpen ? '›' : '‹'}
       </button>
-
-      {/* Sidebar content */}
-      <div className="sidebar-content">
-        {children}
-      </div>
-    </div>
+    </>
   );
 };

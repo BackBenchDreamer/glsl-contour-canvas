@@ -24,6 +24,18 @@
   --transition-fast: 180ms cubic-bezier(0.4, 0, 0.2, 1);
   --transition-medium: 250ms ease-in-out;
   --sidebar-transition: 280ms ease-in-out;
+  /* edge safe inset — used by all fixed chrome */
+  --edge: 16px;
+}
+
+/* ===== RESPONSIVE TOKEN OVERRIDES ===== */
+@media (min-width: 600px) {
+  :root { --edge: 24px; }
+}
+@media (max-width: 599px) {
+  :root {
+    --sidebar-width: 100vw;  /* full-width slide-in on mobile */
+  }
 }
 
 body {
@@ -69,11 +81,11 @@ body.zen-mode .right-sidebar {
   pointer-events: none !important;
 }
 
-/* Zen toggle — NEVER hidden by zen mode */
+/* Zen toggle — NEVER hidden by zen mode; bottom-right clear of export bar */
 .zen-toggle {
   position: fixed;
   bottom: 80px;
-  right: 24px;
+  right: var(--edge);
   z-index: 100;
   width: 36px;
   height: 36px;
@@ -171,10 +183,11 @@ body.zen-mode .zen-toggle:hover {
 /* ===== HUD OVERLAY — COLLAPSIBLE ===== */
 .hud-overlay {
   position: fixed;
-  top: 24px;
-  left: 24px;
+  top: var(--edge);
+  left: var(--edge);
   z-index: 20;
-  max-width: 420px;
+  /* shrink to fit on small screens, cap at 420px on large */
+  width: min(420px, calc(100vw - 2 * var(--edge)));
   padding: 0;
   pointer-events: auto;
   overflow: hidden;
@@ -340,6 +353,49 @@ body.zen-mode .zen-toggle:hover {
 }
 
 .sidebar-toggle:hover {
+  border-color: rgba(0, 255, 204, 0.3);
+  color: var(--hud-accent);
+}
+
+/* ── Mobile: sidebar is full-width; tab lives outside viewport when closed.
+   Compensate with a floating open-button pinned to the right edge instead. ── */
+@media (max-width: 599px) {
+  /* Hide the left-edge tab — it's off-screen on full-width mobile sidebar */
+  .right-sidebar .sidebar-toggle {
+    display: none;
+  }
+  /* Floating open button — always in viewport, bottom-right corner */
+  .sidebar-fab {
+    display: flex;
+  }
+}
+
+/* FAB (floating action button) for sidebar on mobile */
+.sidebar-fab {
+  display: none;   /* hidden on desktop — tab is used instead */
+  position: fixed;
+  bottom: 80px;
+  right: var(--edge);
+  z-index: 40;
+  width: 44px;
+  height: 44px;
+  border-radius: 12px;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: rgba(8, 8, 12, 0.92);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  color: var(--hud-text-dim);
+  font-size: 18px;
+  line-height: 1;
+  transition: color var(--transition-fast), border-color var(--transition-fast);
+  font-family: var(--sans);
+}
+
+.sidebar-fab:hover,
+.sidebar-fab.open {
   border-color: rgba(0, 255, 204, 0.3);
   color: var(--hud-accent);
 }
@@ -549,7 +605,7 @@ body.zen-mode .zen-toggle:hover {
 /* ===== PRESET SWITCHER — COLLAPSIBLE (translateY) ===== */
 .preset-bar {
   position: fixed;
-  bottom: 24px;
+  bottom: var(--edge);
   left: 50%;
   z-index: 20;
   display: flex;
@@ -559,7 +615,8 @@ body.zen-mode .zen-toggle:hover {
   overflow: visible;
   transform: translateX(-50%) translateY(0);
   transition: transform var(--transition-medium), max-width var(--sidebar-transition);
-  max-width: calc(100vw - 360px);
+  /* sidebar open: reserve 320px right + 40px left buffer */
+  max-width: calc(100vw - var(--sidebar-width) - 40px);
 }
 
 body.sidebar-closed .preset-bar {
@@ -567,7 +624,31 @@ body.sidebar-closed .preset-bar {
 }
 
 .preset-bar.collapsed {
-  transform: translateX(-50%) translateY(80%);
+  transform: translateX(-50%) translateY(calc(100% + var(--edge)));
+}
+
+/* ── Mobile: preset bar scrolls horizontally, stays narrow ── */
+@media (max-width: 599px) {
+  .preset-bar {
+    /* full width minus edge gutters; left offset reset */
+    left: var(--edge);
+    right: var(--edge);
+    transform: translateY(0);
+    max-width: calc(100vw - 2 * var(--edge));
+    bottom: 80px; /* above export bar */
+  }
+  body.sidebar-closed .preset-bar { max-width: calc(100vw - 2 * var(--edge)); }
+  .preset-bar.collapsed {
+    transform: translateY(calc(100% + 16px));
+  }
+  .preset-bar-content {
+    overflow-x: auto;
+    overflow-y: hidden;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+    padding-bottom: 4px;
+  }
+  .preset-bar-content::-webkit-scrollbar { display: none; }
 }
 
 .preset-bar-toggle {
@@ -754,11 +835,19 @@ body.sidebar-closed .preset-bar {
 /* ===== EXPORT BUTTONS ===== */
 .export-bar {
   position: fixed;
-  bottom: 24px;
-  right: 24px;
+  bottom: var(--edge);
+  left: var(--edge);   /* ← moved from right to left */
   z-index: 20;
   display: flex;
   gap: 6px;
+}
+
+/* On mobile stack vertically so they don't overflow on narrow screens */
+@media (max-width: 399px) {
+  .export-bar {
+    flex-direction: column;
+    align-items: flex-start;
+  }
 }
 
 .export-btn {

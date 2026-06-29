@@ -2,6 +2,9 @@ import { registry } from '../engine/Registry';
 import { FieldType } from '../engine/Graph';
 import { snoise2D } from './glsl/snoise2D';
 import { fbm } from './glsl/fbm';
+import { rainbowColorMap } from './glsl/rainbowColorMap';
+import { infernoRamp } from './glsl/infernoRamp';
+import { flowFieldParticle } from './glsl/flowFieldParticle';
 
 registry.register('uv', {
   name: 'UV Coordinates',
@@ -235,6 +238,119 @@ registry.register('diffusion', {
     float out_${node.id} = center_${node.id} + laplace_${node.id} * u_${node.id}_rate;
     `;
   }
+});
+
+/**
+ * rainbow_color_map — HSV colour cycle gated by a contour mask.
+ *
+ * field input drives hue (each noise elevation = different hue).
+ * mask input drives brightness (contour lines = lit, gaps = dark).
+ *
+ * Per-pixel: hue = hueShift + field * hueRange; rgb = hsv(hue, sat, mask * brightness)
+ */
+registry.register('rainbow_color_map', {
+  name: 'Rainbow Color Map',
+  inputs: {
+    field: [FieldType.StaticScalar, FieldType.DynamicScalar],
+    mask:  [FieldType.StaticScalar, FieldType.DynamicScalar],
+  },
+  outputType: FieldType.Vector3,
+  glslDependencies: [rainbowColorMap],
+  uniformTypes: {
+    hueShift:   'float',
+    hueRange:   'float',
+    saturation: 'float',
+    brightness: 'float',
+  },
+  getUniforms: (node) => ({
+    hueShift:   node.params.hueShift   ?? 0.0,
+    hueRange:   node.params.hueRange   ?? 1.0,
+    saturation: node.params.saturation ?? 1.0,
+    brightness: node.params.brightness ?? 1.0,
+  }),
+  generateCode: (node, getInput) => {
+    const id = node.id;
+    return `
+    float hue_${id} = fract(u_${id}_hueShift + (${getInput('field')} * 0.5 + 0.5) * u_${id}_hueRange);
+    vec3 out_${id} = hsv2rgb(vec3(hue_${id}, u_${id}_saturation, ${getInput('mask')} * u_${id}_brightness));
+    `;
+  },
+});
+
+/**
+ * heat_map — samples the 4-stop inferno colour ramp.
+ *
+ * field: raw noise scalar (remapped from [-1,1] to [0,1] internally)
+ * mask:  contour extraction — multiplies into brightness so lines punch hot
+ *
+ * The ramp runs: char-black → blood-red → burnt-orange → lava-orange → incandescent-yellow
+ * Lines land near the hot end (high field + high mask); background stays near the dark end.
+ */
+registry.register('heat_map', {
+  name: 'Heat Map',
+  inputs: {
+    field: [FieldType.StaticScalar, FieldType.DynamicScalar],
+    mask:  [FieldType.StaticScalar, FieldType.DynamicScalar],
+  },
+  outputType: FieldType.Vector3,
+  glslDependencies: [infernoRamp],
+  uniformTypes: {
+    fieldBias:   'float',   // shifts the ramp sample point: 0 = cool bias, 1 = hot bias
+    lineBoost:   'float',   // extra brightness multiplier for the contour mask overlay
+  },
+  getUniforms: (node) => ({
+    fieldBias:  node.params.fieldBias  ?? 0.3,
+    lineBoost:  node.params.lineBoost  ?? 2.5,
+  }),
+  generateCode: (node, getInput) => {
+    const id = node.id;
+    return `
+    // Remap field from [-1,1] → [0,1], then bias toward hotter end
+    float heat_${id} = clamp((${getInput('field')} * 0.5 + 0.5) * (1.0 - u_${id}_fieldBias) + u_${id}_fieldBias * ${getInput('mask')}, 0.0, 1.0);
+    vec3 ramp_${id} = infernoRamp(heat_${id});
+    // Add contour line brightness on top — lines glow hotter than the terrain
+    vec3 out_${id} = ramp_${id} + infernoRamp(clamp(heat_${id} + ${getInput('mask')} * u_${id}_lineBoost * 0.3, 0.0, 1.0)) * ${getInput('mask')};
+    `;
+  },
+});
+
+/**
+ * flow_field_particle — LIC-style directional particle dashes aligned to a
+ * Perlin noise vector field.
+ *
+ * Inputs:  uv (vec2), time (float scalar)
+ * Output:  DynamicScalar [0,1] brightness — short bright dashes follow flow
+ *
+ * Uniforms:
+ *   fieldScale  — spatial freq of angle-noise (higher = tighter swirls)
+ *   seedScale   — spatial freq of seed-noise (higher = finer dots)
+ *   stepSize    — UV distance per step (larger = longer dashes)
+ *   numSteps    — iterations (more = longer, denser dashes)
+ */
+registry.register('flow_field_particle', {
+  name: 'Flow Field Particle',
+  inputs: {
+    uv:   FieldType.Vector2,
+    time: [FieldType.StaticScalar, FieldType.DynamicScalar],
+  },
+  outputType: FieldType.DynamicScalar,
+  glslDependencies: [snoise2D, flowFieldParticle],
+  uniformTypes: {
+    fieldScale: 'float',
+    seedScale:  'float',
+    stepSize:   'float',
+    numSteps:   'int',
+  },
+  getUniforms: (node) => ({
+    fieldScale: node.params.fieldScale ?? 2.5,
+    seedScale:  node.params.seedScale  ?? 8.0,
+    stepSize:   node.params.stepSize   ?? 0.006,
+    numSteps:   node.params.numSteps   ?? 16,
+  }),
+  generateCode: (node, getInput) => {
+    const id = node.id;
+    return `float out_${id} = flowFieldParticle(${getInput('uv')}, u_${id}_fieldScale, u_${id}_seedScale, u_${id}_stepSize, u_${id}_numSteps, ${getInput('time')});`;
+  },
 });
 
 export * from '../engine/Registry';

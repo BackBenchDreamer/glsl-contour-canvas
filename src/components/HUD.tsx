@@ -23,6 +23,7 @@ export const HUD: React.FC = () => {
       className={`hud-overlay glass-panel ${collapsed ? 'collapsed' : ''}`}
       data-overlay
       id="hud-overlay"
+      suppressHydrationWarning
     >
       <div className="hud-title-bar" onClick={() => setCollapsed(!collapsed)}>
         <h1>Node Contour Engine</h1>

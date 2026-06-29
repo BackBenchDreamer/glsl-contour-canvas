@@ -59,40 +59,77 @@ export const PRESETS: PresetConfig[] = [
   {
     id: 'neon',
     name: 'Neon',
-    description: 'Vivid cyan-magenta on dark background',
-    thumbGradient: 'linear-gradient(135deg, #0a0015, #0ff, #f0f, #0a0015)',
+    description: 'Shifting rainbow hue cycle — each elevation band a different colour',
+    thumbGradient: 'linear-gradient(135deg, #0a0015, #ff00ff, #00ffff, #ffff00, #ff0080)',
     controls: {
       noise: { scale: 1.1, fbmOctaves: 4 },
       warp: { intensity: 0.5, warpScale: 2.0 },
-      contour: { frequency: 7.5, thickness: 0.12, smoothing: 0.025 },
+      contour: { frequency: 9.0, thickness: 0.10, smoothing: 0.022 },
+      // background/contour_color unused by neon's rainbow graph — kept for type compat
       colors: { background: '#050010', contour_color: '#00ffff' },
-      animation: { timeSpeed: 0.003, noiseTimeScale: 0.2 },
+      animation: { timeSpeed: 0.003, noiseTimeScale: 0.18 },
     },
   },
   {
     id: 'inferno',
     name: 'Inferno',
-    description: 'Hot palette inspired by matplotlib inferno',
-    thumbGradient: 'linear-gradient(135deg, #000004, #420a68, #b73779, #ed7953, #fcffa4)',
+    description: 'Dual-warp heat ramp — lava terrain with glowing fissure lines',
+    thumbGradient: 'linear-gradient(135deg, #04010a, #3a0800, #b83000, #ff6a00, #ffe060)',
     controls: {
-      noise: { scale: 1.0, fbmOctaves: 4 },
-      warp: { intensity: 0.6, warpScale: 2.5 },
-      contour: { frequency: 8.0, thickness: 0.15, smoothing: 0.05 },
-      colors: { background: '#000004', contour_color: '#ed7953' },
-      animation: { timeSpeed: 0.003, noiseTimeScale: 0.2 },
+      // 6 octaves = dense geological terrain
+      noise: { scale: 0.9, fbmOctaves: 6 },
+      // intensity feeds two warp layers at ×0.7 and ×0.4 — see buildInfernoGraph
+      warp: { intensity: 0.9, warpScale: 3.5 },
+      // dense lines, thin, heavy smoothing = incandescent glow halos
+      contour: { frequency: 20.0, thickness: 0.04, smoothing: 0.14 },
+      // colors unused by heat_map — kept for type compat
+      colors: { background: '#04010a', contour_color: '#ff6a00' },
+      animation: { timeSpeed: 0.0015, noiseTimeScale: 0.08 },
     },
   },
   {
     id: 'glitch',
     name: 'Glitch',
-    description: 'High-frequency saturated interference patterns',
-    thumbGradient: 'linear-gradient(135deg, #0a0020, #00ff88, #ff0055, #0044ff, #0a0020)',
+    description: 'Dual-field interference grid torn apart by extreme warp',
+    thumbGradient: 'linear-gradient(135deg, #030008, #00ff88, #ff0055, #030008)',
     controls: {
-      noise: { scale: 1.3, fbmOctaves: 4 },
-      warp: { intensity: 1.8, warpScale: 8.0 },
-      contour: { frequency: 9.0, thickness: 0.10, smoothing: 0.015 },
-      colors: { background: '#020010', contour_color: '#00ff88' },
-      animation: { timeSpeed: 0.004, noiseTimeScale: 0.25 },
+      // scale applied to field A; field B uses ×0.45 — see buildGlitchGraph
+      noise: { scale: 3.5, fbmOctaves: 2 },
+      // large warp scale (0.8) = sweeping broad tears, not fine jitter
+      warp: { intensity: 2.8, warpScale: 0.8 },
+      // high frequency over interference signal = dense bright grid lines
+      contour: { frequency: 22.0, thickness: 0.09, smoothing: 0.006 },
+      colors: { background: '#030008', contour_color: '#00ff88' },
+      animation: { timeSpeed: 0.011, noiseTimeScale: 0.6 },
+    },
+  },
+  {
+    id: 'flow-trails',
+    name: 'Flow Trails',
+    description: 'Electric ghost-trails — dual-warp lightning veins with additive temporal decay',
+    thumbGradient: 'linear-gradient(135deg, #000005, #001028, #003060, #00c8ff22)',
+    controls: {
+      // dual warp: large (×0.5 intensity) + fine (×0.3) — see buildFlowTrailsGraph
+      noise: { scale: 1.6, fbmOctaves: 4 },
+      warp: { intensity: 0.9, warpScale: 2.8 },
+      // tight lines — glow dominates over fill
+      contour: { frequency: 14.0, thickness: 0.06, smoothing: 0.025 },
+      colors: { background: '#000005', contour_color: '#40e0ff' },
+      animation: { timeSpeed: 0.0022, noiseTimeScale: 0.18 },
+    },
+  },
+  {
+    id: 'flow-field',
+    name: 'Flow Field',
+    description: 'Perlin-noise vector field — short particle dashes trace invisible wind currents',
+    thumbGradient: 'linear-gradient(135deg, #000208, #001020, #004488, #0088ff18)',
+    controls: {
+      // noise controls used for the decay pass timing only
+      noise: { scale: 1.0, fbmOctaves: 3 },
+      warp: { intensity: 0.0, warpScale: 1.0 },
+      contour: { frequency: 1.0, thickness: 0.1, smoothing: 0.02 },
+      colors: { background: '#000208', contour_color: '#55aaff' },
+      animation: { timeSpeed: 0.003, noiseTimeScale: 0.2 },
     },
   },
 ];

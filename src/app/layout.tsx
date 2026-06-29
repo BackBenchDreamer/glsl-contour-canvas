@@ -29,7 +29,10 @@ export default function RootLayout({
         <link rel="preconnect" href="https://fonts.googleapis.com" />
         <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="anonymous" />
       </head>
-      <body>{children}</body>
+      {/* suppressHydrationWarning: browser extensions (e.g. VS Code Live Server)
+          inject className="vsc-initialized" onto <body> before React hydrates,
+          causing a benign but noisy mismatch warning. */}
+      <body suppressHydrationWarning>{children}</body>
     </html>
   );
 }

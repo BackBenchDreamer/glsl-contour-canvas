@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useMemo, useRef, useCallback } from 'react';
+import React, { useMemo, useRef, useCallback, useEffect } from 'react';
 import { GraphDef, NodeDef } from '../engine/Graph';
 import { registry } from '../engine/Registry';
 
@@ -228,6 +228,7 @@ export const NodeGraphPanel: React.FC<NodeGraphPanelProps> = ({ graph }) => {
   }, [graph]);
 
   // ─── SVG INTERACTION: refs-only, no React state for zoom/pan ───
+  const svgRef = useRef<SVGSVGElement>(null);
   const svgGRef = useRef<SVGGElement>(null);
   const transformRef = useRef({ x: 0, y: 0, scale: 1 });
   const isPanning = useRef(false);
@@ -245,10 +246,34 @@ export const NodeGraphPanel: React.FC<NodeGraphPanelProps> = ({ graph }) => {
     }
   }, []);
 
-  const resetTransform = useCallback(() => {
-    transformRef.current = { x: 0, y: 0, scale: 1 };
+  // Fit-to-view: scale + centre the graph so it fills the SVG viewport.
+  // Called whenever the layout changes (preset switch, graph recompile).
+  const fitToView = useCallback(() => {
+    if (!layout || !svgRef.current) return;
+    const { viewBox } = layout;
+    const svgEl = svgRef.current;
+    const panelW = svgEl.clientWidth  || 272;
+    const panelH = svgEl.clientHeight || 320;
+    const scaleX = panelW / viewBox.w;
+    const scaleY = panelH / viewBox.h;
+    // Use the smaller axis so the whole graph fits; cap at 1.6 to avoid over-magnification
+    const scale = Math.min(scaleX, scaleY, 1.6) * 0.92; // 8% padding
+    const x = (panelW - viewBox.w * scale) / 2 - viewBox.x * scale;
+    const y = (panelH - viewBox.h * scale) / 2 - viewBox.y * scale;
+    transformRef.current = { x, y, scale };
     applyTransform();
-  }, [applyTransform]);
+  }, [layout, applyTransform]);
+
+  const resetTransform = useCallback(() => {
+    fitToView();
+  }, [fitToView]);
+
+  // Auto-fit whenever the graph layout changes (new preset or recompile)
+  useEffect(() => {
+    // rAF gives the SVG a chance to be painted before we read clientWidth/Height
+    const id = requestAnimationFrame(() => fitToView());
+    return () => cancelAnimationFrame(id);
+  }, [fitToView]);
 
   // Wheel zoom
   const handleWheel = useCallback((e: React.WheelEvent<SVGSVGElement>) => {
@@ -313,22 +338,21 @@ export const NodeGraphPanel: React.FC<NodeGraphPanelProps> = ({ graph }) => {
       {/* SVG graph body */}
       <div className="dag-sidebar-body" id="node-graph-panel">
         <svg
+          ref={svgRef}
           className="dag-svg-viewport"
-          viewBox={`${viewBox.x} ${viewBox.y} ${viewBox.w} ${viewBox.h}`}
-          preserveAspectRatio="xMidYMid meet"
           onWheel={handleWheel}
           onPointerDown={handlePointerDown}
           onPointerMove={handlePointerMove}
           onPointerUp={handlePointerUp}
           onPointerCancel={handlePointerUp}
         >
-          {/* Grid pattern background */}
+          {/* Grid pattern background — covers full pixel viewport, not graph coords */}
           <defs>
             <pattern id="dag-grid" width="20" height="20" patternUnits="userSpaceOnUse">
               <circle cx="10" cy="10" r="0.5" fill="rgba(255,255,255,0.06)" />
             </pattern>
           </defs>
-          <rect x={viewBox.x} y={viewBox.y} width={viewBox.w} height={viewBox.h} fill="url(#dag-grid)" />
+          <rect x="0" y="0" width="100%" height="100%" fill="url(#dag-grid)" />
 
           <g ref={svgGRef}>
             {/* Edges — cubic bezier, vertical ±40px control points */}
